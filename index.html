@@ -141,13 +141,33 @@ function updateSyncStatus(text, color) {
   if (el) { el.textContent = text; el.style.color = color; }
 }
 
+function isMobileDevice() {
+  return /Android|iPhone|iPad|iPod|Mobile|webOS/i.test(navigator.userAgent) || window.innerWidth <= 900;
+}
+
 function signInWithGoogle() {
   const provider = new firebase.auth.GoogleAuthProvider();
-  auth.signInWithPopup(provider).catch(err => {
-    console.error("Login failed:", err);
-    alert("Login failed: " + err.message);
-  });
+  if (isMobileDevice()) {
+    // Popups are unreliable on mobile browsers - use redirect instead
+    auth.signInWithRedirect(provider).catch(err => {
+      console.error("Login failed:", err);
+      alert("Login failed: " + err.message);
+    });
+  } else {
+    auth.signInWithPopup(provider).catch(err => {
+      console.error("Popup sign-in failed, falling back to redirect:", err);
+      auth.signInWithRedirect(provider).catch(err2 => {
+        console.error("Redirect login failed too:", err2);
+        alert("Login failed: " + err2.message);
+      });
+    });
+  }
 }
+
+// Catch the result when returning from a redirect-based sign-in
+auth.getRedirectResult().catch(err => {
+  if (err && err.code) console.error("Redirect result error:", err);
+});
 
 function signOut() {
   auth.signOut().then(() => {
@@ -1102,12 +1122,79 @@ body {
 }
 
 @media (max-width: 900px) {
+  /* HUD: stack logo/pills/clock, show hamburger */
+  .hud {
+    height: auto;
+    min-height: 64px;
+    padding: 8px 0;
+  }
+  .hud > div {
+    flex-wrap: wrap;
+    padding: 0 12px;
+    gap: 8px;
+  }
+  #mobileMenuBtn { display: flex !important; }
+
+  /* Sidebar becomes a slide-in drawer */
   .layout { grid-template-columns: 1fr; }
-  .sidebar { display: none; }
-  .main { padding: 88px 20px 20px; }
-  .grid { grid-template-columns: 1fr; }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: 100vh;
+    width: 80vw !important;
+    max-width: 320px;
+    z-index: 999;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    padding-top: 16px;
+    box-shadow: 8px 0 30px rgba(0,0,0,0.6);
+  }
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+  .sidebar-resize { display: none; }
+
+  /* Main content takes full width, stacks panels */
+  .main { padding: 12px 10px 90px; }
+  .grid { grid-template-columns: 1fr !important; gap: 10px; }
+  .grid-row { flex-direction: column !important; }
+  .panel { width: 100% !important; flex: none !important; min-width: 0 !important; }
+
+  /* Calendar shrinks to fit narrow screens */
+  .calendar-grid { font-size: 9px; gap: 1px; }
+  .cal-week-wrap, .cal-week-hdr { grid-template-columns: repeat(7,1fr) !important; }
+
+  /* MG levels table tightens up */
+  .mg-row, .mg-col-hdr { font-size: 9px; padding: 4px; }
+
+  /* Session buttons stack better on phone */
+  .sess-grid, [style*="grid-template-columns:1fr 1fr 1fr"] {
+    gap: 6px;
+  }
+}
+
+@media (max-width: 480px) {
+  .hud .pill-stat, .hud > div > div { padding: 4px 10px !important; }
+  #hudBalance, #hudTarget, #hudPnl, #hudProgress { font-size: 13px !important; }
 }
 </style>
+<script>
+function toggleMobileSidebar() {
+  const sidebar = document.getElementById("mainSidebar");
+  const backdrop = document.getElementById("mobileSidebarBackdrop");
+  if (!sidebar || !backdrop) return;
+  const isOpen = sidebar.classList.contains("mobile-open");
+  if (isOpen) {
+    sidebar.classList.remove("mobile-open");
+    backdrop.style.display = "none";
+  } else {
+    sidebar.classList.add("mobile-open");
+    backdrop.style.display = "block";
+  }
+}
+</script>
 </head>
 <body>
 
@@ -1134,6 +1221,9 @@ body {
   <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(77,243,255,0.5),transparent);z-index:1;"></div>
   <div style="position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(77,243,255,0.1),transparent);z-index:1;"></div>
   <div style="display:flex;align-items:center;width:100%;padding:0 20px;height:100%;gap:16px;position:relative;z-index:2;">
+
+    <!-- Mobile menu toggle (hidden on desktop) -->
+    <button id="mobileMenuBtn" onclick="toggleMobileSidebar()" style="display:none;background:rgba(77,243,255,0.1);border:1px solid rgba(77,243,255,0.25);color:#4df3ff;border-radius:8px;width:34px;height:34px;font-size:16px;cursor:pointer;flex-shrink:0;align-items:center;justify-content:center;">☰</button>
 
     <!-- Logo -->
     <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
@@ -1169,8 +1259,11 @@ body {
 </div>
 
 <div class="layout">
+  <!-- Mobile sidebar backdrop -->
+  <div id="mobileSidebarBackdrop" onclick="toggleMobileSidebar()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:998;"></div>
+
   <!-- SIDEBAR -->
-  <aside class="sidebar" style="background:linear-gradient(160deg,rgba(77,243,255,0.06) 0%,rgba(10,14,26,0.98) 50%,rgba(255,77,109,0.03) 100%);border-right:1px solid rgba(77,243,255,0.12);position:relative;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:rgba(77,243,255,0.2) transparent;flex-shrink:0;width:var(--sidebar-w,200px);box-sizing:border-box;">
+  <aside id="mainSidebar" class="sidebar" style="background:linear-gradient(160deg,rgba(77,243,255,0.06) 0%,rgba(10,14,26,0.98) 50%,rgba(255,77,109,0.03) 100%);border-right:1px solid rgba(77,243,255,0.12);position:relative;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:rgba(77,243,255,0.2) transparent;flex-shrink:0;width:var(--sidebar-w,200px);box-sizing:border-box;">
     <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(77,243,255,0.4),transparent);z-index:1;pointer-events:none;"></div>
     <div style="position:absolute;top:0;left:0;width:40%;height:100%;background:linear-gradient(105deg,transparent 25%,rgba(77,243,255,0.03) 50%,transparent 75%);animation:sweep 5s cubic-bezier(0.45,0.05,0.55,0.95) infinite;pointer-events:none;filter:blur(6px);"></div>
     <div class="sidebar-resize" id="sidebarResize"></div>
@@ -1407,6 +1500,9 @@ body {
                 <div id="riskBar" style="display:flex;gap:3px;"></div>
               </div>
               <div style="height:1px;background:linear-gradient(90deg,transparent,rgba(77,243,255,0.15),transparent);"></div>
+              <div id="sessionLockedBanner" style="display:none;align-items:center;justify-content:center;gap:8px;background:rgba(255,77,109,0.1);border:1px solid rgba(255,77,109,0.3);border-radius:8px;padding:8px 12px;font-size:13px;color:#ff8fa3;font-weight:600;">
+                🔒 Session Locked — click <span style="color:#fff;">NEW DAY</span> to start trading again
+              </div>
               <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
                 <div style="display:flex;flex-direction:column;gap:5px;">
                   <div class="sess-grp-lbl">Base</div>
@@ -2028,8 +2124,45 @@ function updateOverview() {
 let _targetHit = false;       // true once target is first reached
 let _targetFloor = 0;         // balance level = start + target (the floor to protect)
 
+function lockSessionUI() {
+  ["btnBaseWin", "btnBaseLoss", "btnMgWin", "btnMgLoss"].forEach(id => {
+    const btn = $(id);
+    if (btn) {
+      btn.disabled = true;
+      btn.style.opacity = "0.3";
+      btn.style.cursor = "not-allowed";
+      btn.title = "Session is locked — click NEW DAY or unlock to continue trading";
+    }
+  });
+  const banner = $("sessionLockedBanner");
+  if (banner) banner.style.display = "flex";
+}
+
+function unlockSessionUI() {
+  const inChain = currentLevelIndex > 0;
+  ["btnBaseWin", "btnBaseLoss"].forEach(id => {
+    const btn = $(id);
+    if (btn) { btn.disabled = false; btn.style.opacity = "1"; btn.style.cursor = "pointer"; btn.title = ""; }
+  });
+  ["btnMgWin", "btnMgLoss"].forEach(id => {
+    const btn = $(id);
+    if (btn) {
+      btn.disabled = !inChain;
+      btn.style.opacity = inChain ? "1" : "0.25";
+      btn.style.cursor = inChain ? "pointer" : "not-allowed";
+      btn.title = "";
+    }
+  });
+  const banner = $("sessionLockedBanner");
+  if (banner) banner.style.display = "none";
+}
+
 function applyWin(isBase) {
-  if (sessionLocked) return;
+  if (sessionLocked) {
+    addHistoryEntry("⚠️ Session is locked — click NEW DAY to start trading again.");
+    lockSessionUI();
+    return;
+  }
   const payout = getPayout();
   let stake;
   if (isBase) {
@@ -2059,7 +2192,7 @@ function applyWin(isBase) {
     const realProfit = +(getBalance() - startBal).toFixed(2);
     _targetFloor = +(startBal + target).toFixed(2);
     const key = dateKey(new Date());
-    calendarData[key] = { result: "win", profit: realProfit };
+    calendarData[key] = { result: "win", profit: realProfit, startBal, endBal: getBalance() };
     addHistoryEntry(`🎯 Target hit! +${money(realProfit)} — logged. Floor = $${_targetFloor.toFixed(2)}`);
     renderCalendar();
     renderGoals();
@@ -2080,7 +2213,11 @@ function applyWin(isBase) {
 }
 
 function applyLoss(isBase) {
-  if (sessionLocked) return;
+  if (sessionLocked) {
+    addHistoryEntry("⚠️ Session is locked — click NEW DAY to start trading again.");
+    lockSessionUI();
+    return;
+  }
   let stake;
   if (isBase) {
     stake = +getBaseEntry().toFixed(2);
@@ -2107,9 +2244,9 @@ function liveCalUpdate() {
     const profit = +(getBalance() - startBal).toFixed(2);
     const key = dateKey(new Date());
     if (profit > 0) {
-      calendarData[key] = { result: "win", profit };
+      calendarData[key] = { result: "win", profit, startBal, endBal: getBalance() };
     } else if (profit < 0) {
-      calendarData[key] = { result: "loss", profit };
+      calendarData[key] = { result: "loss", profit, startBal, endBal: getBalance() };
     } else {
       delete calendarData[key];
     }
@@ -2123,6 +2260,7 @@ function liveCalUpdate() {
 
 function stopSession() {
   sessionLocked = true;
+  lockSessionUI();
   _targetHit = false;
   _targetFloor = 0;
   const target = getDailyTargetDollar();
@@ -2133,13 +2271,13 @@ function stopSession() {
   const profit = +(currentBal - startBal).toFixed(2);
 
   if (profit >= target && target > 0) {
-    calendarData[key] = { result: "win", profit };
+    calendarData[key] = { result: "win", profit, startBal, endBal: currentBal };
     addHistoryEntry(`Session stopped. ✅ +${money(profit)}`);
   } else if (profit < 0) {
-    calendarData[key] = { result: "loss", profit };
+    calendarData[key] = { result: "loss", profit, startBal, endBal: currentBal };
     addHistoryEntry(`Session stopped. ❌ ${money(profit)}`);
   } else {
-    calendarData[key] = { result: "loss", profit };
+    calendarData[key] = { result: "loss", profit, startBal, endBal: currentBal };
     addHistoryEntry(`Session stopped. ⚠️ Below target: +${money(profit)}`);
   }
 
@@ -2165,9 +2303,9 @@ function resetSession() {
   const target = getDailyTargetDollar();
   const key = getTodayKey();
   if (currentNetProfit >= target && target > 0) {
-    calendarData[key] = { result: "win", profit: currentNetProfit };
+    calendarData[key] = { result: "win", profit: currentNetProfit, startBal, endBal: getBalance() };
   } else if (currentNetProfit !== 0) {
-    calendarData[key] = { result: "loss", profit: currentNetProfit };
+    calendarData[key] = { result: "loss", profit: currentNetProfit, startBal, endBal: getBalance() };
   }
 
   // Carry forward current balance as new start balance for the day
@@ -2178,6 +2316,7 @@ function resetSession() {
   sessionStartBalance = getBalance();
   currentLevelIndex = 0;
   sessionLocked = false;
+  unlockSessionUI();
   _targetHit = false;
   _targetFloor = 0;
 
@@ -2732,7 +2871,10 @@ function applyCloudState(s) {
     if (s.sessionStartBalance !== undefined) sessionStartBalance = s.sessionStartBalance;
     if (s.netProfit !== undefined) netProfit = s.netProfit;
     if (s.currentLevelIndex !== undefined) currentLevelIndex = s.currentLevelIndex;
-    if (s.sessionLocked !== undefined) { sessionLocked = !!s.sessionLocked; if (sessionLocked) lockSessionUI && lockSessionUI(); }
+    if (s.sessionLocked !== undefined) {
+      sessionLocked = !!s.sessionLocked;
+      if (sessionLocked) lockSessionUI(); else unlockSessionUI();
+    }
     if (s.currentMonth !== undefined) currentMonth = s.currentMonth;
     if (s.currentYear !== undefined) currentYear = s.currentYear;
     if (s.panelLayout) {
@@ -3011,7 +3153,15 @@ function saveEditGoal(idx) {
     alert("Please fill in all fields.");
     return;
   }
-  goals[idx] = { name, dailyPercent, days, startDate, startBalance, visible: goals[idx].visible, collapsed: goals[idx].collapsed };
+  goals[idx] = {
+    name,
+    dailyPercent,
+    days,
+    startDate,
+    startBalance,
+    visible: goals[idx].visible !== undefined ? goals[idx].visible : true,
+    collapsed: goals[idx].collapsed !== undefined ? goals[idx].collapsed : true
+  };
   renderGoals();
   renderCalendar();
   saveState();
@@ -3027,11 +3177,12 @@ function deleteGoal(idx) {
 function resetPanel(section) {
   switch(section) {
     case 'session':
-      if (!confirm("Reset session? (profit, MG level, lock)")) return;
+      if (!confirm("Reset session? This clears today's profit progress, MG level, and unlocks the session if locked. Your balance stays the same — only the progress bar resets.")) return;
       netProfit = 0;
       sessionStartBalance = getBalance();
       currentLevelIndex = 0;
       sessionLocked = false;
+      unlockSessionUI();
       const gauge = document.querySelector(".circle-gauge");
       if (gauge) { gauge.style.borderColor = ""; gauge.style.boxShadow = ""; }
       addHistoryEntry("🔄 Session reset.");
@@ -3083,15 +3234,20 @@ function updateGoalKpis(activeIdx) {
   if (activeIdx !== undefined) _activeGoalIdx = activeIdx;
   const total = goals.length;
   const today = new Date();
-  let active = 0, bestPct = null;
+  let active = 0;
   goals.forEach(g => {
     const [yr, mo, dy] = g.startDate.split("-").map(Number);
     const start = new Date(yr, mo - 1, dy);
     const end = new Date(yr, mo - 1, dy + g.days - 1);
     if (today >= start && today <= end && g.enabled !== false) active++;
-    let bal = g.startBalance || getBalance();
-    for (let i = 0; i < g.days; i++) bal = +(bal * (1 + g.dailyPercent / 100)).toFixed(2);
-    const pct = +((bal - (g.startBalance || getBalance())) / (g.startBalance || getBalance()) * 100).toFixed(1);
+  });
+
+  // Best % = actual best real trading day from calendarData, not a theoretical projection
+  let bestPct = null;
+  Object.keys(calendarData).forEach(key => {
+    const entry = calendarData[key];
+    if (!entry || entry.startBal === undefined || !entry.startBal) return;
+    const pct = +((entry.profit / entry.startBal) * 100).toFixed(1);
     if (bestPct === null || pct > bestPct) bestPct = pct;
   });
 
@@ -3398,8 +3554,13 @@ function saveState() {
     theme: localStorage.getItem("martingaleTheme") || null,
     lastUpdated: Date.now()
   };
-  localStorage.setItem("martingaleDashboardState", JSON.stringify(state));
-  syncToCloud(state);
+
+  // Sanitize: JSON round-trip strips any `undefined` values that would
+  // otherwise cause Firebase writes to silently fail for some users
+  const safeState = JSON.parse(JSON.stringify(state));
+
+  localStorage.setItem("martingaleDashboardState", JSON.stringify(safeState));
+  syncToCloud(safeState);
 }
 
 function loadState() {
@@ -3441,6 +3602,7 @@ function loadState() {
     renderGoals();
     renderCalendar();
     updateOverview();
+    if (sessionLocked) lockSessionUI(); else unlockSessionUI();
   } catch (e) {
     setBalance(getStartBalance());
     buildMgLevels();
@@ -3533,7 +3695,9 @@ function autoLogFromInputs() {
   if (profit !== 0) {
     calendarData[key] = {
       result: profit >= 0 ? "win" : "loss",
-      profit
+      profit,
+      startBal,
+      endBal: curBal
     };
   } else {
     delete calendarData[key];
@@ -4085,6 +4249,17 @@ window.resetPanelLayout = function() {
 buildMgLevels();
 loadState();
 loadInitialDeposit();
+
+// Auto-close mobile sidebar drawer when a button inside it is tapped
+document.addEventListener("click", (e) => {
+  if (window.innerWidth > 900) return;
+  const sidebar = document.getElementById("mainSidebar");
+  if (!sidebar || !sidebar.classList.contains("mobile-open")) return;
+  if (e.target.closest("button") && sidebar.contains(e.target)) {
+    setTimeout(() => toggleMobileSidebar(), 150);
+  }
+});
+
 // Restore tools collapse state
 (function() {
   const toolsOpen = localStorage.getItem('toolsOpen') === '1';
