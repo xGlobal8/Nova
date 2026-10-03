@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f5f5f7">
+<title>Lead Finder — Businesses Without a Website</title>
+<meta name="description" content="Find local businesses that have no website, see their contact details and ratings, and track your outreach.">
+<link rel="preconnect" href="https://nominatim.openstreetmap.org">
+<link rel="preconnect" href="https://overpass-api.de">
+<style>
+  :root {
+    --primary: #0066cc;
+    --primary-focus: #0071e3;
+    --ink: #1d1d1f;
+    --ink-muted: #7a7a7a;
+    --ink-80: #333333;
+    --hairline: #e0e0e0;
+    --divider: #f0f0f0;
+    --canvas: #ffffff;
+    --parchment: #f5f5f7;
+    --pearl: #fafafc;
+    --tile: #272729;
+    --good: #1d7a3a;
+    --warn: #b25000;
+    --font-display: "SF Pro Display", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-text: "SF Pro Text", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--parchment);
+    color: var(--ink);
+    font: 400 17px/1.47 var(--font-text);
+    letter-spacing: -0.374px;
+    -webkit-font-smoothing: antialiased;
+    touch-action: manipulation;
+  }
+  a { color: var(--primary); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  :focus-visible { outline: 2px solid var(--primary-focus); outline-offset: 2px; }
+  .skip { position: absolute; left: -9999px; top: 8px; background: var(--canvas); padding: 8px 16px; border-radius: 980px; z-index: 10; }
+  .skip:focus { left: 16px; }
+
+  header.hero { background: var(--tile); color: #fff; text-align: center; padding: 72px 16px 56px; }
+  .hero h1 { font: 600 clamp(36px, 6vw, 56px)/1.07 var(--font-display); letter-spacing: -0.28px; margin: 0 0 12px; text-wrap: balance; }
+  .hero p { font: 400 clamp(19px, 2.4vw, 24px)/1.4 var(--font-text); color: #cccccc; margin: 0 auto; max-width: 720px; text-wrap: pretty; }
+
+  main { max-width: 1120px; margin: 0 auto; padding: 0 16px 80px; }
+  .panel { background: var(--canvas); border-radius: 18px; padding: 24px; margin-top: 24px; }
+  .panel h2 { font: 600 21px/1.19 var(--font-display); letter-spacing: 0.231px; margin: 0 0 16px; }
+
+  .search { display: grid; grid-template-columns: 2fr 1.4fr 1fr 1.2fr auto; gap: 12px; align-items: end; margin-top: -32px; position: relative; }
+  @media (max-width: 860px) { .search { grid-template-columns: 1fr 1fr; } .search .go { grid-column: 1 / -1; } }
+  @media (max-width: 520px) { .search { grid-template-columns: 1fr; } }
+  label.field { display: flex; flex-direction: column; gap: 6px; font: 600 14px/1.29 var(--font-text); letter-spacing: -0.224px; color: var(--ink-80); min-width: 0; }
+  input, select, textarea {
+    font: 400 17px/1.3 var(--font-text); color: var(--ink);
+    background: var(--pearl); border: 1px solid var(--hairline); border-radius: 11px;
+    padding: 11px 14px; width: 100%; min-width: 0;
+  }
+  select { background-color: var(--pearl); color: var(--ink); }
+  textarea { min-height: 140px; resize: vertical; line-height: 1.47; }
+  input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--primary-focus); outline-offset: 0; border-color: transparent; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    font: 400 17px/1 var(--font-text); letter-spacing: 0;
+    border-radius: 980px; padding: 12px 22px; border: 1px solid transparent; cursor: pointer;
+    background: var(--primary); color: #fff; white-space: nowrap;
+    transition: background-color .15s ease, color .15s ease, border-color .15s ease;
+  }
+  .btn:hover { background: var(--primary-focus); text-decoration: none; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.secondary { background: transparent; color: var(--primary); border-color: var(--primary); }
+  .btn.secondary:hover { background: rgba(0, 102, 204, .06); }
+  .btn.small { font-size: 14px; padding: 8px 14px; letter-spacing: -0.224px; }
+  .btn.ghost { background: transparent; color: var(--primary); padding: 8px 10px; }
+  .btn.ghost:hover { background: rgba(0, 102, 204, .06); }
+
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .spacer { flex: 1; }
+  .muted { color: var(--ink-muted); }
+  .caption { font: 400 14px/1.43 var(--font-text); letter-spacing: -0.224px; }
+  .status-line { min-height: 24px; margin: 16px 4px 0; }
+  .status-line.error { color: #b00020; }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 32px 0 12px; }
+  .toolbar h2 { font: 600 28px/1.14 var(--font-display); margin: 0; }
+  .seg { display: inline-flex; background: #e8e8ed; border-radius: 980px; padding: 3px; }
+  .seg button { font: 400 14px/1 var(--font-text); border: 0; background: transparent; color: var(--ink); padding: 8px 14px; border-radius: 980px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--canvas); font-weight: 600; }
+  .filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .filters input[type="search"] { width: 220px; }
+  .filters select { width: auto; }
+  .check { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; padding: 6px 0; }
+  .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary); }
+
+  .stats { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .stat { background: var(--canvas); border-radius: 980px; padding: 6px 14px; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .stat b { font-weight: 600; }
+
+  .leads { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+  @media (max-width: 400px) { .leads { grid-template-columns: 1fr; } }
+  .lead { background: var(--canvas); border-radius: 18px; padding: 20px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .lead.dim { opacity: .55; }
+  .lead h3 { font: 600 19px/1.24 var(--font-display); margin: 0; overflow-wrap: anywhere; }
+  .lead .meta { font-size: 14px; color: var(--ink-muted); letter-spacing: -0.224px; overflow-wrap: anywhere; }
+  .lead dl { display: grid; grid-template-columns: 72px 1fr; gap: 4px 10px; margin: 0; font-size: 14px; letter-spacing: -0.224px; }
+  .lead dt { color: var(--ink-muted); }
+  .lead dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag { font: 600 12px/1 var(--font-text); padding: 5px 9px; border-radius: 980px; background: var(--parchment); color: var(--ink-80); }
+  .tag.score { background: #e8f1fb; color: var(--primary); font-variant-numeric: tabular-nums; }
+  .tag.good { background: #e6f4ea; color: var(--good); }
+  .tag.warn { background: #fdf0e6; color: var(--warn); }
+  .lead .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 6px; border-top: 1px solid var(--divider); }
+  .lead .track { display: grid; grid-template-columns: 1fr; gap: 8px; }
+  .lead .track select, .lead .track input { font-size: 14px; padding: 8px 12px; }
+  .rating { font-variant-numeric: tabular-nums; }
+
+  .empty { text-align: center; padding: 56px 16px; background: var(--canvas); border-radius: 18px; }
+  .empty h3 { font: 600 21px/1.19 var(--font-display); margin: 0 0 8px; }
+
+  details.panel summary { cursor: pointer; font: 600 21px/1.19 var(--font-display); list-style: none; display: flex; align-items: center; justify-content: space-between; }
+  details.panel summary::-webkit-details-marker { display: none; }
+  details.panel summary::after { content: "+"; font-weight: 300; font-size: 28px; color: var(--ink-muted); }
+  details.panel[open] summary::after { content: "–"; }
+  .settings { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
+  .settings .full { grid-column: 1 / -1; }
+  @media (max-width: 640px) { .settings { grid-template-columns: 1fr; } }
+
+  footer { max-width: 1120px; margin: 0 auto; padding: 24px 16px 48px; font-size: 12px; line-height: 1.5; color: var(--ink-muted); border-top: 1px solid var(--hairline); }
+  footer p { margin: 0 0 8px; }
+
+  .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(20px); opacity: 0; background: var(--ink); color: #fff; padding: 12px 20px; border-radius: 980px; font-size: 14px; pointer-events: none; transition: opacity .2s ease, transform .2s ease; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  @media (prefers-reduced-motion: reduce) { .toast, .btn { transition: none; } }
+</style>
+</head>
+<body>
+<a class="skip" href="#results">Skip to results</a>
+
+<header class="hero">
+  <h1>Find businesses without a website.</h1>
+  <p>Search any town, see which local businesses have no site yet, and reach out with a ready-made pitch.</p>
+</header>
+
+<main>
+  <form class="panel search" id="searchForm" autocomplete="off">
+    <label class="field">Town, city or postcode
+      <input id="location" name="location" type="text" placeholder="e.g. Manchester…" required spellcheck="false" autocomplete="address-level2">
+    </label>
+    <label class="field">Business type
+      <select id="category" name="category"></select>
+    </label>
+    <label class="field">Radius
+      <select id="radius" name="radius">
+        <option value="1000">1&nbsp;km</option>
+        <option value="2000" selected>2&nbsp;km</option>
+        <option value="5000">5&nbsp;km</option>
+        <option value="10000">10&nbsp;km</option>
+        <option value="20000">20&nbsp;km</option>
+      </select>
+    </label>
+    <label class="field">Data source
+      <select id="source" name="source">
+        <option value="osm">OpenStreetMap (free)</option>
+        <option value="google">Google Places (API key)</option>
+      </select>
+    </label>
+    <button class="btn go" id="searchBtn" type="submit">Find Leads</button>
+  </form>
+  <p class="status-line caption" id="status" role="status" aria-live="polite"></p>
+
+  <section id="results" aria-labelledby="resultsTitle">
+    <div class="toolbar">
+      <h2 id="resultsTitle">Leads</h2>
+      <div class="seg" role="group" aria-label="Which leads to show">
+        <button type="button" data-view="search" aria-pressed="true">This Search</button>
+        <button type="button" data-view="all" aria-pressed="false">All Saved</button>
+      </div>
+      <span class="spacer"></span>
+      <button type="button" class="btn small secondary" id="enrichBtn" title="Look up ratings, reviews and websites on Google">Check All on Google</button>
+      <button type="button" class="btn small secondary" id="exportBtn">Export CSV</button>
+    </div>
+    <div class="filters" style="margin-bottom:16px">
+      <input type="search" id="filterText" placeholder="Filter by name or street…" aria-label="Filter by name or street" spellcheck="false">
+      <select id="filterStatus" aria-label="Filter by status">
+        <option value="">All statuses</option>
+      </select>
+      <label class="check"><input type="checkbox" id="filterPhone"> Has phone</label>
+      <label class="check"><input type="checkbox" id="hideWebsite" checked> Hide if Google lists a website</label>
+      <select id="sortBy" aria-label="Sort leads">
+        <option value="score">Sort: best leads first</option>
+        <option value="reviews">Sort: most reviews</option>
+        <option value="name">Sort: name A–Z</option>
+      </select>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="leads" id="leads"></div>
+  </section>
+
+  <details class="panel" id="settingsPanel">
+    <summary>Settings &amp; Pitch Message</summary>
+    <div class="settings">
+      <label class="field">Your name / business name
+        <input id="myName" type="text" placeholder="e.g. Sam from Nova Web…" autocomplete="name">
+      </label>
+      <label class="field">Google Places API key (optional)
+        <input id="apiKey" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="field full">Pitch message
+        <textarea id="pitch" spellcheck="true"></textarea>
+        <span class="caption muted">Placeholders: {name}, {category}, {area}, {rating_text}, {my_name}</span>
+      </label>
+      <div class="full row">
+        <button type="button" class="btn small" id="saveSettings">Save Settings</button>
+        <button type="button" class="btn small secondary" id="resetPitch">Reset Pitch</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn small ghost" id="demoBtn">Load Demo Data</button>
+        <button type="button" class="btn small ghost" id="clearBtn">Delete All Saved Leads</button>
+      </div>
+      <p class="full caption muted" style="margin:0">
+        Your API key, leads and notes are stored only in this browser. To get a key, enable “Places API (New)” in Google Cloud Console and create an API key restricted to this site’s address.
+      </p>
+    </div>
+  </details>
+</main>
+
+<footer>
+  <p>Business data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> (ODbL) and, when enabled, Google Places. Only public business listings are used — no personal data about reviewers or private individuals.</p>
+  <p>Before contacting businesses, follow the marketing rules where you work (for example GDPR/PECR in the UK &amp; EU, CAN-SPAM and TCPA in the US): identify yourself, keep it relevant to the business, and stop when asked.</p>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ---------- Config ----------
+  const CATEGORIES = [
+    { id: "food", label: "Restaurants, cafés & takeaways", osm: [["amenity", "restaurant|cafe|fast_food|bar|pub|ice_cream"], ["shop", "bakery|butcher|deli|confectionery"]], google: "restaurants and cafes" },
+    { id: "beauty", label: "Hair, beauty & barbers", osm: [["shop", "hairdresser|beauty|cosmetics|massage|tattoo|nail_salon"]], google: "hair salons, barbers and beauty salons" },
+    { id: "health", label: "Health, dentists & clinics", osm: [["amenity", "dentist|doctors|clinic|veterinary|pharmacy"], ["healthcare", ".*"]], google: "dentists, clinics and physiotherapists" },
+    { id: "fitness", label: "Gyms & fitness", osm: [["leisure", "fitness_centre|sports_centre|dance"]], google: "gyms and fitness studios" },
+    { id: "trades", label: "Trades & home services", osm: [["craft", ".*"]], google: "plumbers, electricians and builders" },
+    { id: "auto", label: "Car repair & garages", osm: [["shop", "car_repair|tyres|car|car_parts|motorcycle"], ["amenity", "car_wash"]], google: "car repair garages and mechanics" },
+    { id: "shops", label: "Shops & retail", osm: [["shop", ".*"]], google: "local shops" },
+    { id: "hotels", label: "Hotels & guest houses", osm: [["tourism", "hotel|guest_house|hostel|motel|apartment"]], google: "hotels and guest houses" },
+    { id: "pro", label: "Professional services", osm: [["office", "lawyer|accountant|estate_agent|insurance|architect|consulting|tax_advisor|financial"]], google: "accountants, lawyers and estate agents" },
+  ];
+  const STATUSES = ["New", "Contacted", "Interested", "Won", "Not interested"];
+  const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
+  const SOCIAL_HOSTS = /(^|\.)(facebook\.com|fb\.com|fb\.me|instagram\.com|tiktok\.com|twitter\.com|x\.com|linktr\.ee|wa\.me|whatsapp\.com|yelp\.[a-z.]+|tripadvisor\.[a-z.]+|google\.[a-z.]+|goo\.gl|business\.site|linkedin\.com|youtube\.com)$/i;
+  const DEFAULT_PITCH =
+`Hi {name} team,
+
+I came across {name} while looking for a {category} in {area}{rating_text} — but I couldn't find a website for you.
+
+I build fast, modern websites for local businesses, so new customers can find you on Google, see what you offer and contact you in one tap.
+
+Would you like me to put together a free mock-up of what your site could look like? No obligation.
+
+Best,
+{my_name}`;
+  const STORE_KEY = "nova-leads-v1";
+  const SETTINGS_KEY = "nova-lead-settings-v1";
+
+  // ---------- Storage (safe) ----------
+  const load = (k, fallback) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fallback; } catch { return fallback; } };
+  const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage unavailable */ } };
+
+  let leads = load(STORE_KEY, {});
+  let settings = Object.assign({ myName: "", apiKey: "", pitch: DEFAULT_PITCH }, load(SETTINGS_KEY, {}));
+  let currentIds = [];
+  let currentArea = "";
+  let view = "search";
+
+  // ---------- DOM ----------
+  const $ = (s) => document.querySelector(s);
+  const el = {
+    form: $("#searchForm"), location: $("#location"), category: $("#category"), radius: $("#radius"), source: $("#source"),
+    searchBtn: $("#searchBtn"), status: $("#status"), leads: $("#leads"), stats: $("#stats"),
+    filterText: $("#filterText"), filterStatus: $("#filterStatus"), filterPhone: $("#filterPhone"), hideWebsite: $("#hideWebsite"), sortBy: $("#sortBy"),
+    enrichBtn: $("#enrichBtn"), exportBtn: $("#exportBtn"),
+    myName: $("#myName"), apiKey: $("#apiKey"), pitch: $("#pitch"), saveSettings: $("#saveSettings"), resetPitch: $("#resetPitch"),
+    demoBtn: $("#demoBtn"), clearBtn: $("#clearBtn"), toast: $("#toast"), settingsPanel: $("#settingsPanel"),
+  };
+  CATEGORIES.forEach(c => el.category.add(new Option(c.label, c.id)));
+  STATUSES.forEach(s => el.filterStatus.add(new Option(s, s)));
+  el.myName.value = settings.myName; el.apiKey.value = settings.apiKey; el.pitch.value = settings.pitch;
+
+  // Restore last search inputs from the URL
+  const params = new URLSearchParams(location.search);
+  if (params.get("q")) el.location.value = params.get("q");
+  if (params.get("cat")) el.category.value = params.get("cat");
+  if (params.get("r")) el.radius.value = params.get("r");
+  if (params.get("src")) el.source.value = params.get("src");
+  if (params.get("view") === "all") view = "all";
+
+  // ---------- Helpers ----------
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const humanize = (s) => String(s || "").replace(/_/g, " ").replace(/^\w/, c => c.toUpperCase());
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const setStatus = (msg, isError = false) => { el.status.textContent = msg; el.status.classList.toggle("error", isError); };
+  let toastTimer;
+  const toast = (msg) => { el.toast.textContent = msg; el.toast.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.toast.classList.remove("show"), 2200); };
+  const fmtNum = (n) => new Intl.NumberFormat().format(n);
+  const persist = () => save(STORE_KEY, leads);
+
+  const isRealWebsite = (url) => {
+    if (!url) return false;
+    try { return !SOCIAL_HOSTS.test(new URL(/^https?:\/\//i.test(url) ? url : "https://" + url).hostname); }
+    catch { return true; }
+  };
+  const socialUrl = (kind, v) => {
+    if (!v) return null;
+    if (/^https?:\/\//i.test(v)) return v;
+    const handle = v.replace(/^@/, "");
+    return { facebook: `https://facebook.com/${handle}`, instagram: `https://instagram.com/${handle}`, tiktok: `https://tiktok.com/@${handle}`, twitter: `https://x.com/${handle}` }[kind] || null;
+  };
+
+  function score(l) {
+    let s = 20;
+    if (l.phone) s += 25;
+    if (l.email) s += 10;
+    if (Object.keys(l.socials || {}).length) s += 10;
+    if (l.rating >= 4) s += 15; else if (l.rating >= 3.5) s += 8;
+    if (l.reviews) s += Math.min(20, Math.round(Math.log10(l.reviews + 1) * 10));
+    if (l.googleWebsite) s -= 60;
+    return Math.max(0, Math.min(100, s));
+  }
+
+  function upsert(lead) {
+    const prev = leads[lead.id];
+    lead.area = lead.area || currentArea;
+    leads[lead.id] = Object.assign({}, lead, prev ? {
+      status: prev.status, notes: prev.notes, addedAt: prev.addedAt,
+      rating: lead.rating ?? prev.rating, reviews: lead.reviews ?? prev.reviews, mapsUrl: lead.mapsUrl || prev.mapsUrl,
+      googleChecked: prev.googleChecked || lead.googleChecked, googleWebsite: lead.googleWebsite || prev.googleWebsite,
+      phone: lead.phone || prev.phone,
+    } : { status: "New", notes: "", addedAt: Date.now() });
+    return lead.id;
+  }
+
+  // ---------- Geocoding ----------
+  async function geocode(q) {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
+    const res = await fetch(url, { headers: { "Accept-Language": navigator.languages?.join(",") || "en" } });
+    if (!res.ok) throw new Error(`Location lookup failed (${res.status}).`);
+    const [hit] = await res.json();
+    if (!hit) throw new Error(`Couldn't find “${q}”. Try a town name or postcode.`);
+    return { lat: +hit.lat, lon: +hit.lon, name: hit.display_name.split(",")[0] };
+  }
+
+  // ---------- OpenStreetMap search ----------
+  async function searchOSM(cat, center, radius) {
+    const around = `(around:${radius},${center.lat},${center.lon})`;
+    const parts = cat.osm.map(([k, v]) => v === ".*" ? `nwr["${k}"]["name"]${around};` : `nwr["${k}"~"^(${v})$"]["name"]${around};`).join("");
+    const query = `[out:json][timeout:60];(${parts});out center tags 2000;`;
+    let lastErr;
+    for (const endpoint of OVERPASS) {
+      try {
+        const res = await fetch(endpoint, { method: "POST", body: "data=" + encodeURIComponent(query), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+        if (!res.ok) throw new Error(`Map server busy (${res.status}).`);
+        const data = await res.json();
+        return data.elements.map(osmToLead).filter(Boolean);
+      } catch (e) { lastErr = e; }
+    }
+    throw new Error((lastErr && lastErr.message) || "Map servers unreachable. Try again in a minute.");
+  }
+
+  function osmToLead(e) {
+    const t = e.tags || {};
+    if (t["brand:wikidata"] || t.brand) return null; // chains already have websites
+    if ([t.website, t["contact:website"], t.url].some(isRealWebsite)) return null;
+    const lat = e.lat ?? e.center?.lat, lon = e.lon ?? e.center?.lon;
+    const kind = ["amenity", "shop", "craft", "office", "healthcare", "leisure", "tourism"].find(k => t[k]);
+    const socials = {};
+    for (const k of ["facebook", "instagram", "tiktok", "twitter"]) {
+      const u = socialUrl(k, t[`contact:${k}`] || t[k]);
+      if (u) socials[k] = u;
+    }
+    for (const w of [t.website, t["contact:website"]]) {
+      if (!w) continue;
+      if (/facebook|fb\./i.test(w)) socials.facebook ||= w;
+      else if (/instagram/i.test(w)) socials.instagram ||= w;
+    }
+    const street = [t["addr:housenumber"], t["addr:street"]].filter(Boolean).join(" ");
+    const address = [street, t["addr:city"] || t["addr:place"], t["addr:postcode"]].filter(Boolean).join(", ");
+    return {
+      id: `osm:${e.type}/${e.id}`, source: "OpenStreetMap", name: t.name,
+      category: humanize(kind && t[kind] !== "yes" ? t[kind] : kind),
+      address, lat, lon,
+      phone: t.phone || t["contact:phone"] || t["contact:mobile"] || "",
+      email: t.email || t["contact:email"] || "",
+      socials, hours: t.opening_hours || "",
+      rating: null, reviews: null, mapsUrl: "",
+      osmUrl: `https://www.openstreetmap.org/${e.type}/${e.id}`,
+      googleChecked: false, googleWebsite: "",
+    };
+  }
+
+  // ---------- Google Places (New) ----------
+  const G_FIELDS = "places.id,places.displayName,places.formattedAddress,places.websiteUri,places.rating,places.userRatingCount,places.googleMapsUri,places.nationalPhoneNumber,places.internationalPhoneNumber,places.primaryTypeDisplayName,places.location,places.businessStatus";
+  async function placesSearch(body, withToken) {
+    const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Goog-Api-Key": settings.apiKey, "X-Goog-FieldMask": G_FIELDS + (withToken ? ",nextPageToken" : "") },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error?.message || `Google Places error (${res.status}).`);
+    return data;
+  }
+
+  async function searchGoogle(cat, center, radius, areaName) {
+    if (!settings.apiKey) throw new Error("Add your Google Places API key in Settings first.");
+    const found = [];
+    let pageToken;
+    for (let page = 0; page < 3; page++) {
+      const body = { textQuery: `${cat.google} in ${areaName}`, pageSize: 20, locationBias: { circle: { center: { latitude: center.lat, longitude: center.lon }, radius: Math.min(radius, 50000) } } };
+      if (pageToken) body.pageToken = pageToken;
+      const data = await placesSearch(body, true);
+      for (const p of data.places || []) {
+        if (p.businessStatus && p.businessStatus !== "OPERATIONAL") continue;
+        if (isRealWebsite(p.websiteUri)) continue;
+        const socials = {};
+        if (p.websiteUri && /facebook|fb\./i.test(p.websiteUri)) socials.facebook = p.websiteUri;
+        if (p.websiteUri && /instagram/i.test(p.websiteUri)) socials.instagram = p.websiteUri;
+        found.push({
+          id: `g:${p.id}`, source: "Google", name: p.displayName?.text || "Unnamed",
+          category: p.primaryTypeDisplayName?.text || cat.label, address: p.formattedAddress || "",
+          lat: p.location?.latitude, lon: p.location?.longitude,
+          phone: p.internationalPhoneNumber || p.nationalPhoneNumber || "", email: "", socials, hours: "",
+          rating: p.rating ?? null, reviews: p.userRatingCount ?? null, mapsUrl: p.googleMapsUri || "", osmUrl: "",
+          googleChecked: true, googleWebsite: "",
+        });
+      }
+      pageToken = data.nextPageToken;
+      if (!pageToken) break;
+      await sleep(300);
+    }
+    return found;
+  }
+
+  async function enrichLead(id) {
+    const l = leads[id];
+    if (!l || l.googleChecked) return;
+    const body = { textQuery: `${l.name}, ${l.address || currentArea}`, pageSize: 1 };
+    if (l.lat != null) body.locationBias = { circle: { center: { latitude: l.lat, longitude: l.lon }, radius: 300 } };
+    const data = await placesSearch(body, false);
+    const p = (data.places || [])[0];
+    l.googleChecked = true;
+    if (p) {
+      l.rating = p.rating ?? l.rating; l.reviews = p.userRatingCount ?? l.reviews; l.mapsUrl = p.googleMapsUri || l.mapsUrl;
+      l.phone = l.phone || p.internationalPhoneNumber || p.nationalPhoneNumber || "";
+      l.address = l.address || p.formattedAddress || "";
+      if (isRealWebsite(p.websiteUri)) l.googleWebsite = p.websiteUri;
+    }
+    persist();
+  }
+
+  // ---------- Pitch ----------
+  function pitchFor(l) {
+    const rating_text = l.rating ? ` — ${l.rating}★ from ${fmtNum(l.reviews || 0)} reviews, your customers clearly love you` : "";
+    const area = l.area || currentArea || "your area";
+    return (settings.pitch || DEFAULT_PITCH)
+      .replaceAll("{name}", l.name).replaceAll("{category}", (l.category || "businesses").toLowerCase())
+      .replaceAll("{area}", area).replaceAll("{rating_text}", rating_text).replaceAll("{my_name}", settings.myName || "");
+  }
+  const digits = (p) => String(p || "").replace(/[^\d+]/g, "").replace(/^\+/, "");
+
+  // ---------- Render ----------
+  function visibleLeads() {
+    const ids = view === "search" ? currentIds : Object.keys(leads);
+    const q = el.filterText.value.trim().toLowerCase();
+    let list = ids.map(id => leads[id]).filter(Boolean)
+      .filter(l => !q || `${l.name} ${l.address}`.toLowerCase().includes(q))
+      .filter(l => !el.filterStatus.value || l.status === el.filterStatus.value)
+      .filter(l => !el.filterPhone.checked || l.phone)
+      .filter(l => !el.hideWebsite.checked || !l.googleWebsite);
+    const by = el.sortBy.value;
+    list.sort((a, b) => by === "name" ? a.name.localeCompare(b.name) : by === "reviews" ? (b.reviews || 0) - (a.reviews || 0) : score(b) - score(a));
+    return list;
+  }
+
+  function render() {
+    const list = visibleLeads();
+    document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.view === view)));
+    const all = Object.values(leads);
+    const count = (s) => all.filter(l => l.status === s).length;
+    el.stats.innerHTML = [
+      `<span class="stat"><b>${fmtNum(list.length)}</b> shown</span>`,
+      `<span class="stat"><b>${fmtNum(all.length)}</b> saved</span>`,
+      ...STATUSES.slice(1, 4).map(s => `<span class="stat"><b>${fmtNum(count(s))}</b> ${esc(s.toLowerCase())}</span>`),
+    ].join("");
+
+    if (!list.length) {
+      const nothingYet = view === "search" && !currentIds.length;
+      el.leads.innerHTML = `<div class="empty" style="grid-column:1/-1"><h3>${nothingYet ? "Search an area to find leads" : "No leads match"}</h3><p class="muted">${nothingYet ? "Enter a town and business type above, then press Find Leads." : "Try clearing the filters or searching a wider radius."}</p></div>`;
+      return;
+    }
+    el.leads.innerHTML = list.map(l => {
+      const s = score(l);
+      const socials = Object.entries(l.socials || {}).map(([k, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(humanize(k))}</a>`).join(" · ");
+      const ratingTag = l.rating ? `<span class="tag good rating">${esc(l.rating)}★ · ${fmtNum(l.reviews || 0)} reviews</span>` : (l.googleChecked ? `<span class="tag">Not on Google</span>` : "");
+      const siteTag = l.googleWebsite ? `<span class="tag warn">Has website on Google</span>` : `<span class="tag good">No website</span>`;
+      const wa = l.phone ? `https://wa.me/${digits(l.phone)}?text=${encodeURIComponent(pitchFor(l))}` : "";
+      const mail = l.email ? `mailto:${encodeURIComponent(l.email)}?subject=${encodeURIComponent("A website for " + l.name)}&body=${encodeURIComponent(pitchFor(l))}` : "";
+      const mapLink = l.mapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([l.name, l.address || (l.lat != null ? `${l.lat},${l.lon}` : currentArea)].join(" "))}`;
+      return `<article class="lead${l.googleWebsite ? " dim" : ""}" data-id="${esc(l.id)}">
+        <div class="tags"><span class="tag score" title="Lead score">${s}/100</span>${siteTag}${ratingTag}</div>
+        <h3>${esc(l.name)}</h3>
+        <div class="meta">${esc(l.category || "Business")} · via ${esc(l.source)}</div>
+        <dl>
+          <dt>Address</dt><dd>${esc(l.address) || '<span class="muted">—</span>'}</dd>
+          <dt>Phone</dt><dd>${l.phone ? `<a href="tel:${esc(l.phone.replace(/\s/g, ""))}">${esc(l.phone)}</a>` : '<span class="muted">—</span>'}</dd>
+          ${l.email ? `<dt>Email</dt><dd><a href="mailto:${esc(l.email)}">${esc(l.email)}</a></dd>` : ""}
+          ${socials ? `<dt>Social</dt><dd>${socials}</dd>` : ""}
+          ${l.hours ? `<dt>Hours</dt><dd>${esc(l.hours)}</dd>` : ""}
+          ${l.googleWebsite ? `<dt>Website</dt><dd><a href="${esc(l.googleWebsite)}" target="_blank" rel="noopener">${esc(l.googleWebsite)}</a></dd>` : ""}
+        </dl>
+        <div class="track">
+          <select data-act="status" aria-label="Status for ${esc(l.name)}">${STATUSES.map(st => `<option${st === l.status ? " selected" : ""}>${esc(st)}</option>`).join("")}</select>
+          <input data-act="notes" type="text" value="${esc(l.notes)}" placeholder="Notes…" aria-label="Notes for ${esc(l.name)}">
+        </div>
+        <div class="actions">
+          ${l.phone ? `<a class="btn small" href="tel:${esc(l.phone.replace(/\s/g, ""))}">Call</a><a class="btn small secondary" href="${esc(wa)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}
+          ${mail ? `<a class="btn small secondary" href="${esc(mail)}">Email</a>` : ""}
+          <button type="button" class="btn small ghost" data-act="copy">Copy Pitch</button>
+          ${!l.googleChecked ? `<button type="button" class="btn small ghost" data-act="enrich">Check Google</button>` : ""}
+          ${mapLink ? `<a class="btn small ghost" href="${esc(mapLink)}" target="_blank" rel="noopener">Map</a>` : ""}
+          ${l.osmUrl ? `<a class="btn small ghost" href="${esc(l.osmUrl)}" target="_blank" rel="noopener">OSM</a>` : ""}
+        </div>
+      </article>`;
+    }).join("");
+  }
+
+  // ---------- Events ----------
+  el.form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const cat = CATEGORIES.find(c => c.id === el.category.value);
+    const radius = +el.radius.value;
+    const src = el.source.value;
+    history.replaceState(null, "", `?${new URLSearchParams({ q: el.location.value.trim(), cat: cat.id, r: radius, src })}`);
+    el.searchBtn.disabled = true; el.searchBtn.textContent = "Searching…";
+    setStatus("Finding the location…");
+    try {
+      const center = await geocode(el.location.value.trim());
+      currentArea = center.name;
+      setStatus(`Searching ${cat.label.toLowerCase()} within ${radius / 1000} km of ${center.name}…`);
+      const found = src === "google" ? await searchGoogle(cat, center, radius, el.location.value.trim()) : await searchOSM(cat, center, radius);
+      currentIds = found.map(upsert);
+      persist();
+      view = "search";
+      setStatus(found.length
+        ? `Found ${fmtNum(found.length)} businesses with no website near ${center.name}.${src === "osm" && settings.apiKey ? " Use “Check All on Google” to add ratings and remove any that do have a site." : ""}`
+        : `No businesses without a website found. Try a bigger radius or another business type.`);
+    } catch (e) {
+      setStatus(e.message || "Something went wrong. Please try again.", true);
+    } finally {
+      el.searchBtn.disabled = false; el.searchBtn.textContent = "Find Leads";
+      render();
+    }
+  });
+
+  el.leads.addEventListener("change", (ev) => {
+    const card = ev.target.closest(".lead"); if (!card) return;
+    const l = leads[card.dataset.id]; if (!l) return;
+    if (ev.target.dataset.act === "status") { l.status = ev.target.value; persist(); render(); toast(`Marked ${l.name} as ${l.status.toLowerCase()}`); }
+    if (ev.target.dataset.act === "notes") { l.notes = ev.target.value; persist(); toast("Note saved"); }
+  });
+
+  el.leads.addEventListener("click", async (ev) => {
+    const btn = ev.target.closest("[data-act]"); if (!btn || btn.tagName === "SELECT" || btn.tagName === "INPUT") return;
+    const id = btn.closest(".lead").dataset.id; const l = leads[id];
+    if (btn.dataset.act === "copy") {
+      try { await navigator.clipboard.writeText(pitchFor(l)); toast("Pitch copied — paste it into a message"); }
+      catch { prompt("Copy this pitch:", pitchFor(l)); }
+      if (l.status === "New") { l.status = "Contacted"; persist(); render(); }
+    }
+    if (btn.dataset.act === "enrich") {
+      if (!settings.apiKey) { el.settingsPanel.open = true; el.apiKey.focus(); toast("Add a Google API key in Settings first"); return; }
+      btn.disabled = true; btn.textContent = "Checking…";
+      try { await enrichLead(id); render(); } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Check Google"; }
+    }
+  });
+
+  el.enrichBtn.addEventListener("click", async () => {
+    if (!settings.apiKey) { el.settingsPanel.open = true; el.apiKey.focus(); toast("Add a Google API key in Settings first"); return; }
+    const todo = visibleLeads().filter(l => !l.googleChecked);
+    if (!todo.length) { toast("Everything shown is already checked"); return; }
+    el.enrichBtn.disabled = true;
+    let done = 0;
+    try {
+      for (const l of todo) {
+        setStatus(`Checking Google… ${done + 1} of ${todo.length}`);
+        await enrichLead(l.id); done++;
+        if (done % 5 === 0) render();
+        await sleep(150);
+      }
+      setStatus(`Checked ${done} businesses on Google.`);
+    } catch (e) { setStatus(e.message, true); }
+    finally { el.enrichBtn.disabled = false; render(); }
+  });
+
+  el.exportBtn.addEventListener("click", () => {
+    const list = visibleLeads();
+    if (!list.length) { toast("Nothing to export"); return; }
+    const cols = ["name", "category", "address", "phone", "email", "facebook", "instagram", "rating", "reviews", "score", "status", "notes", "maps", "source"];
+    const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const rows = list.map(l => [l.name, l.category, l.address, l.phone, l.email, l.socials?.facebook, l.socials?.instagram, l.rating, l.reviews, score(l), l.status, l.notes, l.mapsUrl || l.osmUrl, l.source].map(cell).join(","));
+    const blob = new Blob(["﻿" + [cols.join(","), ...rows].join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: `leads-${new Date().toISOString().slice(0, 10)}.csv` });
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast(`Exported ${list.length} leads`);
+  });
+
+  document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
+    view = b.dataset.view;
+    const p = new URLSearchParams(location.search); if (view === "all") p.set("view", "all"); else p.delete("view");
+    history.replaceState(null, "", `?${p}`);
+    render();
+  }));
+  [el.filterText, el.filterStatus, el.filterPhone, el.hideWebsite, el.sortBy].forEach(i => i.addEventListener("input", render));
+
+  el.saveSettings.addEventListener("click", () => {
+    settings = { myName: el.myName.value.trim(), apiKey: el.apiKey.value.trim(), pitch: el.pitch.value };
+    save(SETTINGS_KEY, settings); toast("Settings saved"); render();
+  });
+  el.resetPitch.addEventListener("click", () => { el.pitch.value = DEFAULT_PITCH; });
+  el.clearBtn.addEventListener("click", () => {
+    if (!confirm("Delete all saved leads, statuses and notes from this browser?")) return;
+    leads = {}; currentIds = []; persist(); render(); toast("All saved leads deleted");
+  });
+  el.demoBtn.addEventListener("click", () => {
+    const demo = [
+      { name: "Rosa's Kitchen", category: "Restaurant", address: "12 Market Street, Leeds, LS1 6DT", phone: "+44 113 496 0123", email: "", socials: { facebook: "https://facebook.com/example" }, rating: 4.7, reviews: 213 },
+      { name: "Sharp Cuts Barbers", category: "Hairdresser", address: "88 Kirkgate, Leeds, LS2 7DJ", phone: "+44 113 496 0456", email: "hello@example.com", socials: { instagram: "https://instagram.com/example" }, rating: 4.9, reviews: 96 },
+      { name: "Northside Auto Repairs", category: "Car repair", address: "4 Mill Lane, Leeds, LS10 1AB", phone: "+44 113 496 0789", email: "", socials: {}, rating: 4.3, reviews: 41 },
+      { name: "Bloom Florist", category: "Florist", address: "3 Briggate, Leeds, LS1 6HD", phone: "", email: "", socials: { facebook: "https://facebook.com/example2" }, rating: null, reviews: null },
+    ].map((d, i) => Object.assign({ id: `demo:${i}`, source: "Demo", lat: null, lon: null, hours: "", mapsUrl: "", osmUrl: "", googleChecked: d.rating != null, googleWebsite: "" }, d));
+    currentArea = "Leeds"; currentIds = demo.map(upsert); persist(); view = "search";
+    setStatus("Loaded 4 demo leads (fictional businesses).");
+    render(); document.getElementById("results").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
